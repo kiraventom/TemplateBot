@@ -1,5 +1,6 @@
 ﻿using Serilog;
 using Serilog.Events;
+using TemplateBot.Users;
 
 namespace TemplateBot;
 
@@ -9,39 +10,24 @@ class Program
 
    static async Task Main()
    {
-      string projectDirPath;
-
-      if (System.OperatingSystem.IsWindows())
-      {
-         var appDataDirPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-         projectDirPath = Path.Combine(appDataDirPath, PROJECT_NAME);
-      }
-      else
-      {
-         var homeDirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-         projectDirPath = Path.Combine(homeDirPath, $".{PROJECT_NAME}");
-      }
-
-      // Create project dir
+      var projectDirPath = GetProjectDirPath();
       Directory.CreateDirectory(projectDirPath);
 
-      // Init logger
-      var logsDirPath = Path.Combine(projectDirPath, "logs");
-      Directory.CreateDirectory(logsDirPath);
-      var logFilePath = Path.Combine(logsDirPath, $"{PROJECT_NAME}.log");
-      var logger = InitLogger(logFilePath);
+      var logger = InitLogger(projectDirPath);
 
-      // Load config
-      var configFilePath = Path.Combine(projectDirPath, "config.json");
-      var config = Config.Load(configFilePath);
-
-      if (config is null)
+      if (!TryLoadConfig(logger, projectDirPath, out var config))
       {
          logger.Fatal("Couldn't parse config, exiting");
          return;
       }
 
-      var telegramController = new TelegramController(logger, config.Token);
+      if (!TryLoadUsersDb(logger, projectDirPath, out var usersDb))
+      {
+         logger.Fatal("Couldn't parse users DB, exiting");
+         return;
+      }
+
+      var telegramController = new TelegramController(logger, config.Token, usersDb);
       telegramController.StartReceiving();
 
       while (true)
@@ -53,13 +39,44 @@ class Program
       }
    }
 
-   static ILogger InitLogger(string logFilePath)
+   private static string GetProjectDirPath()
    {
+      if (System.OperatingSystem.IsWindows())
+      {
+         var appDataDirPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+         return Path.Combine(appDataDirPath, PROJECT_NAME);
+      }
+
+      var homeDirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+      return Path.Combine(homeDirPath, $".{PROJECT_NAME}");
+   }
+
+   private static ILogger InitLogger(string projectDirPath)
+   {
+      var logsDirPath = Path.Combine(projectDirPath, "logs");
+      Directory.CreateDirectory(logsDirPath);
+      var logFilePath = Path.Combine(logsDirPath, $"{PROJECT_NAME}.log");
+
       var logger = new LoggerConfiguration()
+         .MinimumLevel.Debug()
          .WriteTo.File(logFilePath)
-         .WriteTo.Console()
+         .WriteTo.Console(restrictedToMinimumLevel: LogEventLevel.Information)
          .CreateLogger();
 
       return logger;
+   }
+
+   private static bool TryLoadConfig(ILogger logger, string projectDirPath, out Config config)
+   {
+      var configFilePath = Path.Combine(projectDirPath, "config.json");
+      config = Config.Load(logger, configFilePath);
+      return config is not null;
+   }
+
+   private static bool TryLoadUsersDb(ILogger logger, string projectDirPath, out UsersDb usersDb)
+   {
+      var usersDbFilePath = Path.Combine(projectDirPath, "users.json");
+      usersDb = UsersDb.Load(logger, usersDbFilePath);
+      return usersDb is not null;
    }
 }

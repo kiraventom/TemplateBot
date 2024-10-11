@@ -1,3 +1,4 @@
+using Serilog;
 using System.IO;
 using System.Text.Json;
 
@@ -16,7 +17,7 @@ public class Config
       Token = token;
    }
 
-   public static Config Load(string filepath)
+   public static Config Load(ILogger logger, string filepath)
    {
       var options = new JsonSerializerOptions()
       {
@@ -30,9 +31,9 @@ public class Config
          using var configFile = File.OpenRead(filepath);
          config = JsonSerializer.Deserialize<Config>(configFile, options);
       }
-      catch
+      catch (Exception e)
       {
-
+         logger.Error(e.ToString());
       }
 
       return config;
